@@ -7,7 +7,8 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_TOKEN = 5000
+DEFAULT_TOKEN = 4000
+PREMIUM_TOKEN = 10000
 
 openai.api_key = "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"
 
@@ -23,6 +24,7 @@ db = SQLAlchemy(app)
 class database(db.Model):
     cno = db.Column(db.Integer, primary_key = True)
     token = db.Column(db.Integer, nullable = False)
+    premium = db.Column(db.Integer, nullable = False)
 
     def __repr__(self):
         return f'{self.cno}'
@@ -49,7 +51,7 @@ def api_process(data):
  
 def send_msg(msg, phone_no):
     headers = {
-        'Authorization': 'Bearer EABU18QMaBQ4BAG0ETRrw3OwedWow3IOGLxT22KyPZBVBVMER77ZCusybFQ2lERrB5a2yWFXN4aZCT6bc6zH1IZAobylzb2f29t4U40aeZCxYdeAM9wDZBogZAx95VL9Et44G438ojPE0913lXG9SpeZBg5tHp7v4YsEoNxnS0DO0QI73G5IqlZCveUVHfEeMmmE4IhJv0xZBwcy9aE97ZBuZCZBmB'
+        'Authorization': 'Bearer EABU18QMaBQ4BANU01hY9EvBfKZBZBrK9VE49He7FK1Kr4u94JdQg6XRbIraYANS6ZC7DZCjsJ7pCZCaIEuZBIjDgbbF8onxeNmnxeV0fkc8ZBOGmbZBkUApZB9L6UlSI2jPeDMizMHg7NGgFJP2QYTWyrTe1H47erlSEk7WGRLIkYDdGPiRgcjgqeu4BEyDddFzcOOaKupxMTJQ6Dtd0ZAs7HZB'
         # 'Accept-Language' : 'en-US,en;q=0.5'
         # user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36'
    }
@@ -65,7 +67,7 @@ def send_msg(msg, phone_no):
     print(response.text)
 
 def create_data(phone_no):
-    new = database(cno = phone_no, token = DEFAULT_TOKEN)
+    new = database(cno = phone_no, token = DEFAULT_TOKEN, premium = 0)
     db.session.add(new)
     db.session.commit()
 
@@ -82,12 +84,11 @@ def webhook():
             prompt_words = prompt.count(' ')+1
             if phone_no not in [data.cno for data in database.query.all()]:
                 create_data(phone_no)
-            pointer = database.query.filter_by(cno = phone_no).first()
+            pointer = db.session.query(database).filter_by(cno = phone_no).first()
             if prompt_words*2 < pointer.token:
                 data = api_process(prompt)
                 pointer.token =pointer.token - (data.count(' ')+prompt_words+1)
-                print(pointer.token)
-                db.session.add(pointer.token)
+                db.session.add(pointer)
                 db.session.commit()
                 send_msg(data, phone_no)
             else:
