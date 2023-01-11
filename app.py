@@ -14,20 +14,11 @@ openai.api_key = "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"
 
 app = Flask(__name__)
 
-#############################################################################
 app.config['SQLALCHEMY_DATABASE_URI'] =\
         'sqlite:///' + os.path.join(BASE_DIR, 'database.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
  
 db = SQLAlchemy(app)
-
-class database(db.Model):
-    cno = db.Column(db.Integer, primary_key = True)
-    token = db.Column(db.Integer, nullable = False)
-    premium = db.Column(db.Integer, nullable = False)
-
-    def __repr__(self):
-        return f'{self.cno}'
 
 @app.route('/')
 def index():
@@ -48,7 +39,7 @@ def api_process(data):
     resp = response.choices[0].text
     print(resp)
     return resp
- 
+
 def send_msg(msg, phone_no):
     headers = {
         'Authorization': 'Bearer EABU18QMaBQ4BANU01hY9EvBfKZBZBrK9VE49He7FK1Kr4u94JdQg6XRbIraYANS6ZC7DZCjsJ7pCZCaIEuZBIjDgbbF8onxeNmnxeV0fkc8ZBOGmbZBkUApZB9L6UlSI2jPeDMizMHg7NGgFJP2QYTWyrTe1H47erlSEk7WGRLIkYDdGPiRgcjgqeu4BEyDddFzcOOaKupxMTJQ6Dtd0ZAs7HZB'
@@ -64,32 +55,55 @@ def send_msg(msg, phone_no):
         }
     }
     response = requests.post('https://graph.facebook.com/v13.0/106970675621311/messages', headers=headers, json=json_data)
-    print(response.text)
+    #print(response.text)
 
-def create_data(phone_no):
-    new = database(cno = phone_no, token = DEFAULT_TOKEN, premium = 0)
+def token_calculation(phone_no, prompt):
+    global data
+    prompt_words = prompt.count(' ')+1
+    pointer = db.session.query(database).filter_by(cno = phone_no).first()
+    if prompt_words*2 < pointer.token:
+        data = api_process(prompt)
+        words_used = data.count(' ')+prompt_words+1 #Count the Number of words used
+        
+        #Updating value
+        pointer.token =pointer.token - words_used 
+        pointer.usage_words += words_used
+        pointer.usage_times += 1  
+        db.session.add(pointer)
+        db.session.commit()
+        return 1
+    return 0
+
+class database(db.Model):
+    cno = db.Column(db.Integer, primary_key = True)
+    user = db.Column(db.String(80), nullable = False)
+    token = db.Column(db.Integer, nullable = False)
+    premium = db.Column(db.Integer, nullable = False)
+    usage_times = db.Column(db.Integer, nullable = False)
+    usage_words = db.Column(db.Integer, nullable = False)
+
+    def __repr__(self):
+        return f'{self.cno}'
+
+def create_data(phone_no, user):
+    new = database(cno = phone_no, token = DEFAULT_TOKEN, premium = 0, user = user,usage_words = 0, usage_times = 0 )
     db.session.add(new)
     db.session.commit()
 
 @app.route('/receive_msg', methods=['POST','GET'])
 def webhook():
-    print(request)
+    #print(request)
     res = request.get_json()
-    print(res)
+    #print(res)
 
     try:
         if res['entry'][0]['changes'][0]['value']['messages'][0]['id']:
             phone_no = int(res['entry'][0]['changes'][0]['value']['messages'][0]['from'])
+            user = res['entry'][0]['changes'][0]['value']['contacts'][0]['profile']['name']
             prompt = res['entry'][0]['changes'][0]['value']['messages'][0]['text']['body']
-            prompt_words = prompt.count(' ')+1
             if phone_no not in [data.cno for data in database.query.all()]:
-                create_data(phone_no)
-            pointer = db.session.query(database).filter_by(cno = phone_no).first()
-            if prompt_words*2 < pointer.token:
-                data = api_process(prompt)
-                pointer.token =pointer.token - (data.count(' ')+prompt_words+1)
-                db.session.add(pointer)
-                db.session.commit()
+                create_data(phone_no, user)
+            if token_calculation(phone_no, prompt):
                 send_msg(data, phone_no)
             else:
                 send_msg('Daily Limit Exceeded', phone_no)
@@ -97,7 +111,6 @@ def webhook():
     except:
         pass
     return '200 OK HTTPS.'
- 
-  
+
 if __name__ == "__main__":
     app.run(debug=True)
