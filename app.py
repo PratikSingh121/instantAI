@@ -5,24 +5,44 @@ import math
 import openai
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
+from config import DbConfig
+# from threading import Thread
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_TOKEN = 4000
 PREMIUM_TOKEN = 10000
 
 openai.api_key = "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"
 
 app = Flask(__name__)
-
-app.config['SQLALCHEMY_DATABASE_URI'] =\
-        'sqlite:///' + os.path.join(BASE_DIR, 'database.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
- 
+app.config.from_object(DbConfig)
 db = SQLAlchemy(app)
 
-@app.route('/')
-def index():
-    return "404 Not Found"
+class database(db.Model):
+    cno = db.Column(db.Integer, primary_key = True)
+    user = db.Column(db.String(80), nullable = False)
+    token = db.Column(db.Integer, nullable = False)
+    premium = db.Column(db.Integer, nullable = False)
+    usage_times = db.Column(db.Integer, nullable = False)
+    usage_words = db.Column(db.Integer, nullable = False)
+
+    def __repr__(self):
+        return f'{self.cno}'
+
+class chat_log(db.Model):
+    __bind_key__ = 'chat'
+    id = db.Column(db.Integer, primary_key = True)
+    cno = db.Column(db.Integer, nullable = False)
+    prompt = db.Column(db.String(1000), nullable = False)
+
+    def __repr__(self):
+        return f'{self.cno}'
+
+# @app.route('/')
+# def index():
+#     return "404 Not Found"
+# def schedule():
+
+
 
 def api_process(data):
     response = openai.Completion.create(
@@ -55,7 +75,12 @@ def send_msg(msg, phone_no):
         }
     }
     response = requests.post('https://graph.facebook.com/v13.0/106970675621311/messages', headers=headers, json=json_data)
-    #print(response.text)
+    print(response.text)
+
+def chat_record(phone_no , prompt):
+    obj = chat_log(cno = phone_no, prompt = prompt)
+    db.session.add(obj)
+    db.session.commit()
 
 def token_calculation(phone_no, prompt):
     global data
@@ -74,17 +99,6 @@ def token_calculation(phone_no, prompt):
         return 1
     return 0
 
-class database(db.Model):
-    cno = db.Column(db.Integer, primary_key = True)
-    user = db.Column(db.String(80), nullable = False)
-    token = db.Column(db.Integer, nullable = False)
-    premium = db.Column(db.Integer, nullable = False)
-    usage_times = db.Column(db.Integer, nullable = False)
-    usage_words = db.Column(db.Integer, nullable = False)
-
-    def __repr__(self):
-        return f'{self.cno}'
-
 def create_data(phone_no, user):
     new = database(cno = phone_no, token = DEFAULT_TOKEN, premium = 0, user = user,usage_words = 0, usage_times = 0 )
     db.session.add(new)
@@ -92,15 +106,16 @@ def create_data(phone_no, user):
 
 @app.route('/receive_msg', methods=['POST','GET'])
 def webhook():
-    #print(request)
+    print(request)
     res = request.get_json()
-    #print(res)
+    print(res)
 
     try:
         if res['entry'][0]['changes'][0]['value']['messages'][0]['id']:
             phone_no = int(res['entry'][0]['changes'][0]['value']['messages'][0]['from'])
             user = res['entry'][0]['changes'][0]['value']['contacts'][0]['profile']['name']
             prompt = res['entry'][0]['changes'][0]['value']['messages'][0]['text']['body']
+            chat_record(phone_no, prompt)
             if phone_no not in [data.cno for data in database.query.all()]:
                 create_data(phone_no, user)
             if token_calculation(phone_no, prompt):
@@ -113,4 +128,4 @@ def webhook():
     return '200 OK HTTPS.'
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug = True)
