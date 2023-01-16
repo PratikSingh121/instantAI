@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request , render_template
 import os
 import requests
 import math
@@ -6,14 +6,15 @@ import openai
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
 from config import DbConfig
-# from threading import Thread
 
-DEFAULT_TOKEN = 4000
-PREMIUM_TOKEN = 10000
+
+DEFAULT_TOKEN = 3000
+PREMIUM_TOKEN = 7000
 
 openai.api_key = "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"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-app = Flask(__name__)
+app = Flask(__name__ , template_folder='templates')
 app.config.from_object(DbConfig)
 db = SQLAlchemy(app)
 
@@ -21,7 +22,7 @@ class database(db.Model):
     cno = db.Column(db.Integer, primary_key = True)
     user = db.Column(db.String(80), nullable = False)
     token = db.Column(db.Integer, nullable = False)
-    premium = db.Column(db.Integer, nullable = False)
+    premium = db.Column(db.Integer, nullable = False, default = 0)
     usage_times = db.Column(db.Integer, nullable = False)
     usage_words = db.Column(db.Integer, nullable = False)
 
@@ -35,14 +36,20 @@ class chat_log(db.Model):
     prompt = db.Column(db.String(1000), nullable = False)
 
     def __repr__(self):
-        return f'{self.cno}'
+        return f'{self.cno}' 
 
-# @app.route('/')
-# def index():
-#     return "404 Not Found"
-# def schedule():
-
-
+@app.cli.command()
+def scheduled():
+    '''Resets all the token value at scheduled time'''
+    for data in database.query.all():
+        if data.premium == 1:
+            val = PREMIUM_TOKEN
+        else:
+            val = DEFAULT_TOKEN
+        data.token = val
+        db.session.add(data)
+    db.session.commit()
+    print('Changed data')
 
 def api_process(data):
     response = openai.Completion.create(
@@ -62,7 +69,7 @@ def api_process(data):
 
 def send_msg(msg, phone_no):
     headers = {
-        'Authorization': 'Bearer EABU18QMaBQ4BANU01hY9EvBfKZBZBrK9VE49He7FK1Kr4u94JdQg6XRbIraYANS6ZC7DZCjsJ7pCZCaIEuZBIjDgbbF8onxeNmnxeV0fkc8ZBOGmbZBkUApZB9L6UlSI2jPeDMizMHg7NGgFJP2QYTWyrTe1H47erlSEk7WGRLIkYDdGPiRgcjgqeu4BEyDddFzcOOaKupxMTJQ6Dtd0ZAs7HZB'
+        'Authorization': 'Bearer EABU18QMaBQ4BAIllRyVoESWmvoJKKRBmITOTT9FMMEq83fQzRWfmlFHg1enaefMiKMxweguPLD5zipXc7FLYTdfNczkBwwZB4ZAK1mo2T7N7jSgMu6w0e6lCpZCpotjpelBcUrRp2uQE4Bolc8zBdKdHd130uicv5lZCfOJU6EWtH3CrC1uhZAInvWKdivt21hygYwWiLdxswMRI8ZB6tR'
         # 'Accept-Language' : 'en-US,en;q=0.5'
         # user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36'
    }
@@ -75,7 +82,7 @@ def send_msg(msg, phone_no):
         }
     }
     response = requests.post('https://graph.facebook.com/v13.0/106970675621311/messages', headers=headers, json=json_data)
-    print(response.text)
+    # print(response.text)
 
 def chat_record(phone_no , prompt):
     obj = chat_log(cno = phone_no, prompt = prompt)
@@ -104,17 +111,22 @@ def create_data(phone_no, user):
     db.session.add(new)
     db.session.commit()
 
+@app.route('/')
+def index():
+    return render_template('index.html')
+
 @app.route('/receive_msg', methods=['POST','GET'])
 def webhook():
-    print(request)
+    # print(request)
     res = request.get_json()
-    print(res)
+    # print(res)
 
     try:
         if res['entry'][0]['changes'][0]['value']['messages'][0]['id']:
             phone_no = int(res['entry'][0]['changes'][0]['value']['messages'][0]['from'])
             user = res['entry'][0]['changes'][0]['value']['contacts'][0]['profile']['name']
             prompt = res['entry'][0]['changes'][0]['value']['messages'][0]['text']['body']
+            print(f"{user} - {prompt}")
             chat_record(phone_no, prompt)
             if phone_no not in [data.cno for data in database.query.all()]:
                 create_data(phone_no, user)
